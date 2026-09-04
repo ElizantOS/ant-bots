@@ -25,3 +25,36 @@ jobs:
         run: npm run frontend:build
       - name: Verify a fresh clean-history export is lossless
         run: npm run publication:check
+
+  package-macos:
+    name: package macOS app
+    needs: check
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Confirm Apple Silicon runner
+        run: test "$(uname -m)" = "arm64"
+      - name: Install the locked dependency graph
+        run: npm ci --no-audit --no-fund
+      - name: Bootstrap the pinned 0.18 runtime
+        run: npm run bootstrap
+      - name: Build and verify the source macOS app
+        run: npm run package
+      - name: Verify the packaged app artifact
+        run: npm run verify
+      - name: Archive the app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/Grok Bot 0.18 Reconstructed.app" "dist/Grok Bot 0.18 Reconstructed-macos-arm64.zip"
+      - name: Upload packaged app and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: grok-bot-0.18-reconstructed-macos-arm64
+          if-no-files-found: error
+          path: |
+            dist/Grok Bot 0.18 Reconstructed-macos-arm64.zip
+            .build/clean-runtime/dist/reconstruction-build.json
+            .build/clean-runtime/dist/runtime-composition-audit.json
