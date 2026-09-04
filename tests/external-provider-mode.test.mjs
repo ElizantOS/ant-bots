@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,7 @@ import { build, transform } from "esbuild";
 import { patchOriginalAccountMenu, patchOriginalOnboardingFallback, patchOriginalSettingsPanel, patchOriginalSignIn, patchOriginalWindowChrome } from "../scripts/lib/router-renderer-patch.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const originalRendererPath = path.join(repoRoot, "src/app/dist/renderer/assets/index-UbX-y3il.js");
 
 async function loadInferenceRouterModule() {
   const source = await readFile(path.join(repoRoot, "source/shared/inference-router.ts"), "utf8");
@@ -90,8 +92,8 @@ test("CP account control is replaced by a direct Settings button", () => {
   assert.doesNotMatch(patched, /It\.Section/);
 });
 
-test("original Settings control tracks the sidebar collapsed state like New", async () => {
-  const source = await readFile(path.join(repoRoot, "src/app/dist/renderer/assets/index-UbX-y3il.js"), "utf8");
+test("original Settings control tracks the sidebar collapsed state like New", { skip: !existsSync(originalRendererPath) }, async () => {
+  const source = await readFile(originalRendererPath, "utf8");
   const patched = patchOriginalAccountMenu(source);
   assert.match(patched, /e\[38\]!==h\|\|e\[39\]!==s\?\(I=O=>p\.jsx\(Xln/);
   assert.match(patched, /shape:"circle"/);
@@ -215,8 +217,8 @@ test("provider transports share one canonical prompt adapter", async () => {
   assert.doesNotMatch(source, /function (codexCliExecutor|codexDirectExecutor|cursorAgentExecutor|openCodeExecutor|claudeExecutor|openRouterExecutor)\(\s*messages:/);
 });
 
-test("original renderer lets local providers send while the box is offline", async () => {
-  const source = await readFile(path.join(repoRoot, "src/app/dist/renderer/assets/index-UbX-y3il.js"), "utf8");
+test("original renderer lets local providers send while the box is offline", { skip: !existsSync(originalRendererPath) }, async () => {
+  const source = await readFile(originalRendererPath, "utf8");
   const patched = patchOriginalOnboardingFallback(source);
   assert.match(patched, /RRouterLocalInferenceReady=false/);
   assert.match(patched, /isTransportDown:\(\)=>r\.snapshots\.get\(\)\.transport==="down"&&!RRouterCanSendWithoutBox\(\)/);
