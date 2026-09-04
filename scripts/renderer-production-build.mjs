@@ -77,9 +77,14 @@ async function readJson(relative) {
   return JSON.parse(await readFile(path.join(repoRoot, relative), "utf8"));
 }
 
-async function validateBootstrapEvidence() {
+async function validateBootstrapEvidence({ requireArtifact = true } = {}) {
   const catalog = await readJson("frontend/manifests/renderer-bootstrap.json");
-  const artifact = await readFile(path.join(repoRoot, catalog.artifact));
+  const artifactPath = path.join(repoRoot, catalog.artifact);
+  if (!existsSync(artifactPath)) {
+    if (requireArtifact) throw new Error(`Renderer bootstrap evidence is missing: ${catalog.artifact}`);
+    return catalog;
+  }
+  const artifact = await readFile(artifactPath);
   const anchors = [
     ...catalog.mount.anchors,
     catalog.runtimeAcquisition.desktop,
@@ -170,9 +175,10 @@ async function validateEvidenceClosure() {
   return { closure: rendererClosureSnapshot(closure), ui };
 }
 
-export async function copyRuntimeAssets(rendererRoot) {
+export async function copyRuntimeAssets(rendererRoot, { allowMissingArtifact = false } = {}) {
   const manifest = await readJson("frontend/manifests/renderer-runtime-assets.json");
   const frontendRoot = path.join(repoRoot, "frontend", "src");
+  const checkedSourceAssetRoot = path.join(repoRoot, "frontend", "public", "assets");
   const usedAssets = new Set();
   for (const relative of await walk(frontendRoot)) {
     if (!/\.[cm]?tsx?$/.test(relative)) continue;
@@ -189,8 +195,20 @@ export async function copyRuntimeAssets(rendererRoot) {
   await mkdir(outputAssets, { recursive: true });
   const copied = [];
   for (const asset of [...manifest.assets, ...(manifest.immutableAssets ?? [])]) {
-    const source = path.join(repoRoot, manifest.artifactRoot, asset.file);
-    const bytes = await readFile(source);
+    let source = path.join(repoRoot, manifest.artifactRoot, asset.file);
+    let bytes;
+    try {
+      bytes = await readFile(source);
+    } catch (error) {
+      if (!allowMissingArtifact || error?.code !== "ENOENT") throw error;
+      source = path.join(checkedSourceAssetRoot, asset.file);
+      try {
+        bytes = await readFile(source);
+      } catch (fallbackError) {
+        if (fallbackError?.code === "ENOENT") continue;
+        throw fallbackError;
+      }
+    }
     const record = validateRuntimeAssetBytes(asset, bytes);
     await cp(source, path.join(outputAssets, asset.file), { preserveTimestamps: true });
     copied.push(record);
@@ -275,11 +293,11 @@ async function emittedRecords(rendererRoot, exemptBannerPaths = new Set()) {
   return records;
 }
 
-export async function buildProductionRenderer({ outputRoot }) {
+export async function buildProductionRenderer({ outputRoot, sourceOnly = false }) {
   if (typeof outputRoot !== "string" || outputRoot.length === 0) throw new TypeError("buildProductionRenderer requires outputRoot");
   const rendererRoot = path.join(outputRoot, rendererProductionOutput);
   const [bootstrap, graph, evidence] = await Promise.all([
-    validateBootstrapEvidence(),
+    validateBootstrapEvidence({ requireArtifact: !sourceOnly }),
     validateCleanGraph(),
     validateEvidenceClosure(),
   ]);
@@ -307,7 +325,7 @@ export async function buildProductionRenderer({ outputRoot }) {
     },
     logLevel: "silent",
   });
-  const assets = await copyRuntimeAssets(rendererRoot);
+  const assets = await copyRuntimeAssets(rendererRoot, { allowMissingArtifact: sourceOnly });
   const katex = await copyKatexRuntimeAssets(rendererRoot);
   const pdf = await copyPdfRuntimeAssets(rendererRoot);
   const viteManifest = normalizeRendererManifestDynamicImports(JSON.parse(await readFile(path.join(rendererRoot, ".vite", "manifest.json"), "utf8")));

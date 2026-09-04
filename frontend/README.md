@@ -11,6 +11,11 @@ boundaries. The upstream renderer itself is not tracked: `npm run bootstrap`
 hydrates its checksum-pinned payload under ignored `src/app/dist`, and
 `npm run frontend:recover` can create an ignored formatted copy for inspection.
 
+Source development is independent of the pinned DMG. The source renderer uses
+the checked-in static assets under `frontend/public/assets` and npm package
+dependencies; only `--renderer upstream`/`recovered` and fidelity packaging
+need the hydrated upstream payload.
+
 Run the editable renderer checks from the repository root:
 
 ```sh

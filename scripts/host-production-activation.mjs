@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -198,6 +199,9 @@ async function validateArtifactAnchor(anchor, artifactText) {
   if (anchor == null || (anchor.artifact ?? hostArtifact) !== hostArtifact || !Number.isInteger(anchor.line) || anchor.line < 1 || typeof anchor.needle !== "string" || anchor.needle.length === 0) {
     throw new Error("Every host production binding requires an exact host artifact anchor");
   }
+  if (artifactText == null) {
+    return { artifact: hostArtifact, line: anchor.line, sourceMarker: anchor.sourceMarker ?? null, needle: anchor.needle };
+  }
   const lines = artifactText.split("\n");
   const line = lines[anchor.line - 1] ?? "";
   if (!line.includes(anchor.needle)) {
@@ -297,7 +301,17 @@ async function validateBinding(binding, baseManifestPath, artifactText, runtimeP
   return { ...rest, artifactAnchors, ...(sourceAnchor == null ? {} : { sourceAnchor }), resolvedModule };
 }
 
-async function runtimeBindingPackages() {
+async function runtimeBindingPackages({ sourceOnly = false } = {}) {
+  if (sourceOnly && !existsSync(path.join(sourceAppDir, "dist/deps/runtime-deps-manifest.json"))) {
+    const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
+    return {
+      copied: new Set([
+        ...Object.keys(packageJson.dependencies ?? {}),
+        ...Object.keys(packageJson.devDependencies ?? {}),
+      ]),
+      native: new Set(),
+    };
+  }
   const runtimeManifest = JSON.parse(await readFile(path.join(sourceAppDir, "dist/deps/runtime-deps-manifest.json"), "utf8"));
   return {
     copied: new Set(runtimeManifest.copied ?? []),
@@ -315,17 +329,19 @@ async function pathExists(target) {
   }
 }
 
-async function assembleExternalReadProductionEvidence() {
-  const artifactText = await readFile(path.join(repoRoot, hostArtifact), "utf8");
+async function assembleExternalReadProductionEvidence({ sourceOnly = false } = {}) {
+  const artifactText = sourceOnly ? null : await readFile(path.join(repoRoot, hostArtifact), "utf8");
   const producerAnchors = [];
-  for (const anchor of [
-    { line: 578037, needle: 'resolveWorkerLocation(__import_meta_url, "pdf-worker")' },
-    { line: 578042, needle: "_pdfWorkerPool = new Piscina({" },
-    { line: 578052, needle: "const params = { bytes };" },
-    { line: 578054, needle: "`./pdf-worker.${extension2}`" },
-    { line: 578056, needle: "return result.text;" },
-    { line: 663309, needle: 'createReadTool(props.resourceAccessor, SAND_READ_FORMATTING_OPTIONS, "latest", {' },
-  ]) producerAnchors.push(await validateArtifactAnchor(anchor, artifactText));
+  if (artifactText != null) {
+    for (const anchor of [
+      { line: 578037, needle: 'resolveWorkerLocation(__import_meta_url, "pdf-worker")' },
+      { line: 578042, needle: "_pdfWorkerPool = new Piscina({" },
+      { line: 578052, needle: "const params = { bytes };" },
+      { line: 578054, needle: "`./pdf-worker.${extension2}`" },
+      { line: 578056, needle: "return result.text;" },
+      { line: 663309, needle: 'createReadTool(props.resourceAccessor, SAND_READ_FORMATTING_OPTIONS, "latest", {' },
+    ]) producerAnchors.push(await validateArtifactAnchor(anchor, artifactText));
+  }
 
   const manifest = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
   const lock = JSON.parse(await readFile(path.join(repoRoot, "package-lock.json"), "utf8"));
@@ -390,7 +406,7 @@ async function sourceNeedleAnchor(source, needle) {
   return { source, line: text.slice(0, offset).split("\n").length, needle };
 }
 
-async function assembleRunnerActivationEvidence(inventory) {
+async function assembleRunnerActivationEvidence(inventory, { sourceOnly = false } = {}) {
   const auditBytes = await readFile(path.join(repoRoot, runnerAuditPath));
   const audit = JSON.parse(auditBytes.toString("utf8"));
   if (!Array.isArray(audit.modules) || audit.modules.length !== audit.summary?.modulesAudited) {
@@ -449,7 +465,7 @@ async function assembleRunnerActivationEvidence(inventory) {
       "if (this.options.runStep == null) return undefined;",
     ),
   };
-  const externalReadProduction = await assembleExternalReadProductionEvidence();
+  const externalReadProduction = await assembleExternalReadProductionEvidence({ sourceOnly });
   const supported = blockingBindings.length === 0
     && semanticGaps.length === 0
     && recoveredProvidersReachable
@@ -498,9 +514,12 @@ async function assembleRunnerActivationEvidence(inventory) {
 }
 
 /** Assembles built-in recovered providers with an optional residual manifest. */
-export async function assembleHostProductionBindingManifest(manifestPath = null) {
-  const artifactText = await readFile(path.join(repoRoot, hostArtifact), "utf8");
-  const runtimePackages = await runtimeBindingPackages();
+export async function assembleHostProductionBindingManifest(manifestPath = null, { sourceOnly = false } = {}) {
+  const artifactPath = path.join(repoRoot, hostArtifact);
+  const artifactText = sourceOnly && !existsSync(artifactPath)
+    ? null
+    : await readFile(artifactPath, "utf8");
+  const runtimePackages = await runtimeBindingPackages({ sourceOnly });
   const catalogPath = path.join(repoRoot, "host-production-bindings.catalog.json");
   const supplied = [];
   let suppliedManifestPath = null;
@@ -551,7 +570,7 @@ export async function assembleHostProductionBindingManifest(manifestPath = null)
   });
   const boundBindings = detailedInventory.filter(item => item.status === "bound").map(item => item.path);
   const unboundBindings = detailedInventory.filter(item => item.status === "unbound").map(item => item.path);
-  const activationEvidence = await assembleRunnerActivationEvidence(detailedInventory);
+  const activationEvidence = await assembleRunnerActivationEvidence(detailedInventory, { sourceOnly });
   activationEvidence.localExecProduction = await assembleLocalExecProductionEvidence();
   const assemblyBytes = Buffer.from(JSON.stringify({ inventory: detailedInventory, activationEvidence }));
   return {
@@ -572,8 +591,8 @@ export async function validateHostProductionBindingManifest(manifestPath) {
   return assembleHostProductionBindingManifest(manifestPath);
 }
 
-export async function buildProductionHostIfSupplied({ outputRoot, manifestPath = process.env.GROK_BOT_HOST_BINDINGS_MANIFEST?.trim() || null } = {}) {
-  const validated = await assembleHostProductionBindingManifest(manifestPath);
+export async function buildProductionHostIfSupplied({ outputRoot, manifestPath = process.env.GROK_BOT_HOST_BINDINGS_MANIFEST?.trim() || null, sourceOnly = false } = {}) {
+  const validated = await assembleHostProductionBindingManifest(manifestPath, { sourceOnly });
   if (validated.unboundBindings.length > 0) {
     return {
       status: "incomplete-evidence-derived-manifest",

@@ -72,10 +72,10 @@ async function outputRecord(outputRoot, relative) {
   return { path: relative, bytes: (await stat(target)).size, sha256: sha256(await readFile(target)) };
 }
 
-async function prepareProductionActivations(clean, hostBindingManifest, electronMainBindingManifest, composition = runtimeComposition, { reconstructedPackage = false } = {}) {
+async function prepareProductionActivations(clean, hostBindingManifest, electronMainBindingManifest, composition = runtimeComposition, { reconstructedPackage = false, sourceOnly = false } = {}) {
   const [hostActivation, electronMainActivation] = await Promise.all([
-    buildProductionHostIfSupplied({ outputRoot: clean.outputRoot, manifestPath: hostBindingManifest }),
-    buildProductionElectronMainIfSupplied({ outputRoot: clean.outputRoot, manifestPath: electronMainBindingManifest, reconstructedPackage }),
+    buildProductionHostIfSupplied({ outputRoot: clean.outputRoot, manifestPath: hostBindingManifest, sourceOnly }),
+    buildProductionElectronMainIfSupplied({ outputRoot: clean.outputRoot, manifestPath: electronMainBindingManifest, reconstructedPackage, sourceOnly }),
   ]);
   const activatedComposition = compositionWithProductionActivations(hostActivation, electronMainActivation, composition);
   const excludedFallbacks = new Set(fallbackSourcesReplacedByActivations(hostActivation, electronMainActivation));
@@ -215,13 +215,19 @@ export { cleanBuildDir, fidelityCleanBuildDir, fidelityRuntimeComposition, runti
 
 export async function buildCleanDistribution(options = {}) {
   const {
+    sourceOnly = false,
     hostBindingManifest = process.env.GROK_BOT_HOST_BINDINGS_MANIFEST?.trim() || null,
     electronMainBindingManifest = process.env.GROK_BOT_ELECTRON_MAIN_BINDINGS_MANIFEST?.trim()
       || (existsSync(defaultElectronMainBindingManifestPath) ? defaultElectronMainBindingManifestPath : null),
     ...baseOptions
   } = options;
-  const base = await buildBaseCleanDistribution(baseOptions);
-  return attachCompositionAudit(await prepareProductionActivations(base, hostBindingManifest, electronMainBindingManifest));
+  const base = await buildBaseCleanDistribution({ ...baseOptions, sourceOnly });
+  const prepared = await prepareProductionActivations(base, hostBindingManifest, electronMainBindingManifest, runtimeComposition, { sourceOnly });
+  if (sourceOnly) {
+    await writeFile(prepared.manifestPath, `${JSON.stringify(prepared.buildManifest, null, 2)}\n`);
+    return prepared;
+  }
+  return attachCompositionAudit(prepared);
 }
 
 export async function buildFidelityDistribution(options = {}) {

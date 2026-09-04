@@ -10,6 +10,8 @@ const upstreamRenderer = path.resolve(here, "../src/app/dist/renderer");
 const pdfjsWorkerRoot = path.resolve(here, "../node_modules/pdfjs-dist/build");
 const recoveredRendererRoot = process.env.SAND_DEV_RENDERER_ROOT?.trim();
 const isRecoveredRenderer = recoveredRendererRoot != null && recoveredRendererRoot.length > 0;
+const rendererMode = process.env.SAND_DEV_RENDERER_MODE?.trim().toLowerCase() || "source";
+const isUpstreamRenderer = rendererMode === "upstream";
 const rendererRoot = isRecoveredRenderer ? path.resolve(recoveredRendererRoot) : here;
 const controlPort = process.env.SAND_DEV_CONTROL_PORT ?? "62150";
 let rendererHealth: unknown = null;
@@ -36,7 +38,7 @@ export default defineConfig({
     {
       name: "serve-bootstrapped-upstream",
       configureServer(server) {
-        const upstreamManifest = isRecoveredRenderer ? null : readUpstreamManifest();
+        const upstreamManifest = isUpstreamRenderer ? readUpstreamManifest() : null;
         server.middlewares.use((request, response, next) => {
           if (upstreamManifest != null && request.url === "/__reconstructed_manifest" && request.method === "GET") {
             response.writeHead(200, { "content-type": "application/json" });

@@ -22,15 +22,21 @@ test("development renderer modes distinguish clean source from recovered artifac
 });
 
 test("source development and packaging use the same clean-source entrypoint", async () => {
-  const [dev, packageScript, build, packageJson] = await Promise.all([
+  const [dev, viteConfig, packageScript, build, packageJson] = await Promise.all([
     readFile(path.join(repoRoot, "scripts/dev.mjs"), "utf8"),
+    readFile(path.join(repoRoot, "frontend/vite.config.ts"), "utf8"),
     readFile(path.join(repoRoot, "scripts/package-macos.mjs"), "utf8"),
     readFile(path.join(repoRoot, "scripts/build.mjs"), "utf8"),
     readFile(path.join(repoRoot, "package.json"), "utf8"),
   ]);
 
   assert.match(dev, /options\.renderer === "source" \? buildCleanDistribution/);
+  assert.match(dev, /options\.renderer === "source" \? { sourceOnly: true } : {}/);
   assert.match(dev, /options\.renderer === "source"[\s\S]*?SAND_DEV_RENDERER_ROOT/);
+  assert.match(dev, /Source renderer development does not require the pinned DMG/);
+  assert.match(dev, /SAND_DEV_RENDERER_MODE = options\.renderer/);
+  assert.match(viteConfig, /isUpstreamRenderer \? readUpstreamManifest\(\) : null/);
+  assert.doesNotMatch(viteConfig, /isRecoveredRenderer \? null : readUpstreamManifest/);
   assert.match(dev, /\[cleanBuildDir, fidelityCleanBuildDir\]/);
   assert.match(dev, /\[fidelityCleanBuildDir, cleanBuildDir\]/);
   assert.match(packageScript, /: await buildReconstructedAsar\(\)/);

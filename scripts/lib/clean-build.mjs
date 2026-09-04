@@ -196,7 +196,7 @@ export function packagedArtifactFallbacks(composition = runtimeComposition) {
     .map(({ sourceBundle }) => sourceBundle);
 }
 
-async function buildRuntimeDistribution({ outputRoot, composition, rendererMode }) {
+async function buildRuntimeDistribution({ outputRoot, composition, rendererMode, sourceOnly = false }) {
   await rm(outputRoot, { recursive: true, force: true });
   await mkdir(outputRoot, { recursive: true });
   for (const [entry, output] of sourceLibraries) await bundleSource(entry, path.join(outputRoot, output));
@@ -218,7 +218,7 @@ async function buildRuntimeDistribution({ outputRoot, composition, rendererMode 
   await bundleVirtual("node-agent-coordinator", coordinatorEntry, path.join(outputRoot, "dist/node-agent-coordinator/main.cjs"));
   let renderer;
   if (rendererMode === "clean-source") {
-    renderer = await buildProductionRenderer({ outputRoot });
+    renderer = await buildProductionRenderer({ outputRoot, sourceOnly });
   } else if (rendererMode === "checksum-pinned-artifact-runtime") {
     renderer = await createRendererArtifactProvenance();
     const provenancePath = path.join(outputRoot, rendererArtifactProvenance);
@@ -253,8 +253,8 @@ async function buildRuntimeDistribution({ outputRoot, composition, rendererMode 
   return { outputRoot, manifestPath, buildManifest, renderer };
 }
 
-export async function buildCleanDistribution({ outputRoot = cleanBuildDir } = {}) {
-  return buildRuntimeDistribution({ outputRoot, composition: runtimeComposition, rendererMode: "clean-source" });
+export async function buildCleanDistribution({ outputRoot = cleanBuildDir, sourceOnly = false } = {}) {
+  return buildRuntimeDistribution({ outputRoot, composition: runtimeComposition, rendererMode: "clean-source", sourceOnly });
 }
 
 export async function buildFidelityDistribution({ outputRoot = fidelityCleanBuildDir } = {}) {

@@ -190,6 +190,12 @@ The same clean graph is available explicitly through `npm run build:source`,
 `npm run dev -- --renderer upstream` only for the byte-exact Renderer comparison
 path.
 
+The default source development path is self-contained: `npm run dev` builds
+the TypeScript Electron/host/renderer graph and uses the npm Electron binary;
+it does not hydrate or download the pinned DMG. `npm run bootstrap` is only
+needed for the upstream/fidelity comparison input and for packaging the
+macOS shell that supplies the ABI-matched runtime.
+
 ## Architecture
 
 ```text

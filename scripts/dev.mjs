@@ -282,7 +282,7 @@ async function runtimeRootMatchesRenderer(runtimeRoot, renderer) {
 async function resolveRuntimeRoot(options) {
   if (!options.noBuild) {
     const build = options.renderer === "source" ? buildCleanDistribution : buildFidelityDistribution;
-    const built = await build({ outputRoot: devRuntimeDir });
+    const built = await build({ outputRoot: devRuntimeDir, ...(options.renderer === "source" ? { sourceOnly: true } : {}) });
     return built.outputRoot;
   }
   if (await runtimeRootMatchesRenderer(devRuntimeDir, options.renderer)) return devRuntimeDir;
@@ -318,6 +318,7 @@ async function runDev(options) {
   delete environment.SAND_INFERENCE_PROVIDER;
   environment.SAND_INFERENCE_PROVIDER_DEFAULT = options.provider;
   environment.SAND_BOX_RUNTIME = options.boxRuntime;
+  environment.SAND_DEV_RENDERER_MODE = options.renderer;
   environment.SAND_DEV_CONTROL_PORT = String(options.controlPort);
   environment.SAND_USER_DATA_DIR = options.userDataDir;
   environment.SAND_DATA_ROOT = path.join(options.userDataDir, "sand-data");
@@ -405,7 +406,11 @@ if (process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(i
       process.exitCode = await runDev(options);
     } catch (error) {
       console.error(`[sand] dev startup failed: ${error instanceof Error ? error.message : String(error)}`);
-      console.error("Run `npm run bootstrap` if the pinned 0.18 runtime has not been hydrated.");
+      if (options.renderer === "source") {
+        console.error("Source renderer development does not require the pinned DMG; check npm dependencies and the local Electron binary.");
+      } else {
+        console.error("Run `npm run bootstrap` only for the pinned upstream/fidelity renderer.");
+      }
       process.exitCode = 1;
     }
   }
