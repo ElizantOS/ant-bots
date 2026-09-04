@@ -52,5 +52,7 @@ test("bootstrap prefers the hash-pinned local archive before the network", async
   assert.match(bootstrap, /const archivedDigest = await sha256\(archivedDmg\)/);
   assert.match(bootstrap, /if \(archivedDigest !== dmgSha256\)/);
   assert.match(bootstrap, /await copyFile\(archivedDmg, cachedDmg\)/);
-  assert.ok(bootstrap.indexOf("await copyFile(archivedDmg, cachedDmg)") < bootstrap.indexOf("await fetch(dmgUrl"));
+  assert.match(bootstrap, /const downloadUrls = .*dmgMirrorUrl/);
+  assert.match(bootstrap, /response = await fetch\(url/);
+  assert.ok(bootstrap.indexOf("await copyFile(archivedDmg, cachedDmg)") < bootstrap.indexOf("const downloadUrls ="));
 });

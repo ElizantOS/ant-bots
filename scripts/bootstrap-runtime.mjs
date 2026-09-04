@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
-import { archivedDmg, cachedDmg, cachedRuntimeApp, dmgSha256, dmgUrl } from "./lib/config.mjs";
+import { archivedDmg, cachedDmg, cachedRuntimeApp, dmgMirrorUrl, dmgSha256, dmgUrl } from "./lib/config.mjs";
 import { run } from "./lib/process.mjs";
 import { cacheRuntimeFromApp, hydrateSourcePayloadFromRuntime, validateRuntimeApp } from "./lib/runtime.mjs";
 import { SYSTEM_TOOLS } from "./lib/system-tools.mjs";
@@ -43,20 +43,46 @@ async function downloadDmg() {
     return;
   }
 
-  console.log(`Downloading ${dmgUrl}`);
-  const response = await fetch(dmgUrl, { redirect: "follow" });
-  if (!response.ok || response.body == null) {
-    throw new Error(`Download failed: HTTP ${response.status}`);
-  }
-  const partial = `${cachedDmg}.partial`;
-  await rm(partial, { force: true });
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(partial, { mode: 0o600 }));
-  const digest = await sha256(partial);
-  if (digest !== dmgSha256) {
+  const configuredUrl = process.env.GROK_BOT_018_DMG_URL?.trim();
+  const downloadUrls = [...new Set([dmgUrl, configuredUrl, dmgMirrorUrl].filter((url) => typeof url === "string" && url.length > 0))];
+  let lastFailure = "no download source";
+  for (const url of downloadUrls) {
+    console.log(`Downloading ${url}`);
+    let response;
+    try {
+      response = await fetch(url, {
+        redirect: "follow",
+        headers: { "user-agent": "grok-bot-0.18-reconstructed-bootstrap" },
+      });
+    } catch (error) {
+      lastFailure = `${url}: ${error instanceof Error ? error.message : String(error)}`;
+      console.warn(`Download source unavailable: ${lastFailure}`);
+      continue;
+    }
+    if (!response.ok || response.body == null) {
+      lastFailure = `${url}: HTTP ${response.status}`;
+      console.warn(`Download source unavailable: ${lastFailure}`);
+      continue;
+    }
+    const partial = `${cachedDmg}.partial`;
     await rm(partial, { force: true });
-    throw new Error(`DMG checksum mismatch: expected ${dmgSha256}, got ${digest}`);
+    try {
+      await pipeline(Readable.fromWeb(response.body), createWriteStream(partial, { mode: 0o600 }));
+    } catch (error) {
+      await rm(partial, { force: true });
+      lastFailure = `${url}: ${error instanceof Error ? error.message : String(error)}`;
+      console.warn(`Download source interrupted: ${lastFailure}`);
+      continue;
+    }
+    const digest = await sha256(partial);
+    if (digest !== dmgSha256) {
+      await rm(partial, { force: true });
+      throw new Error(`DMG checksum mismatch from ${url}: expected ${dmgSha256}, got ${digest}`);
+    }
+    await rename(partial, cachedDmg);
+    return;
   }
-  await rename(partial, cachedDmg);
+  throw new Error(`Download failed from all sources: ${lastFailure}`);
 }
 
 async function extractRuntime() {
